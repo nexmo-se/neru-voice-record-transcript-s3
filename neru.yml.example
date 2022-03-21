@@ -6,13 +6,4 @@ instance:
     region: NERU_REGION
     application-id: VONAGE_APPLICATION_ID
     configurations:
-        applicationName: NERU_APPLICATION_NAME
-        apiKey: VONAGE_API_KEY
         apiSecret: VONAGE_API_SECRET
-        applicationId: VONAGE_APPLICATION_ID
-        awsId: AWS_ACCESS_KEY_ID
-        awsSecret: AWS_SECRET_ACCESS_KEY
-        s3Bucket: S3_BUCKET
-        awsRegion: AWS_REGION
-        awsSessionToken: AWS_SESSION_TOKEN
-    
