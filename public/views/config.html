@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Config</title>
+
+        <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+        
+        <link rel="stylesheet" href="./css/style.css">
+	</head>
+	<body>
+		<h1>Configure App</h1>
+	
+        <form action="./config/save" method="post">
+            <section>
+                <label for="apiKey">Vonage API Key</label>
+                <input id="apiKey" name="apiKey" type="text" disabled>
+            </section>
+            <section>
+                <label for="apiSecret">Vonage API Secret</label>
+                <input id="apiSecret" name="apiSecret" type="password" value="secret" disabled>
+            </section>
+            <section>
+                <label for="applicationId">Application ID</label>
+                <input id="applicationId" name="applicationId" type="text" disabled>
+            </section>
+            <!-- <section>
+                <label for="privateKey">Private Key</label>
+                <textarea id="privateKey" name="privateKey" type="text" disabled></textarea>
+            </section> -->
+            <hr>
+            <section>
+                <label for="awsId">AWS Access Key ID</label>
+                <input id="awsId" name="awsId" type="text" required autofocus>
+            </section>
+            <section>
+                <label for="awsSecret">AWS Secret Access Key</label>
+                <input id="awsSecret" name="awsSecret" type="text" required>
+            </section>
+            <section>
+                <label for="awsRegion">AWS Region</label>
+                <input id="awsRegion" name="awsRegion" type="text" required>
+            </section>
+            <section>
+                <label for="s3Bucket">AWS S3 Bucket Name</label>
+                <input id="s3Bucket" name="s3Bucket" type="text" required>
+            </section>
+            
+            <button type="submit">Save</button>
+        </form>
+	
+	</body>
+
+	<script rel="preload" type="text/javascript" src="js/app.js"></script>
+</html>

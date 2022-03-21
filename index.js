@@ -1,80 +1,99 @@
-import { Voice, neru } from 'neru-alpha';
+import { neru } from 'neru-alpha';
 import Util from 'util';
-// console.log(process.env);
 
+const APP_ID = process.env.API_APPLICATION_ID;
 const BASE_URL = process.env.ENDPOINT_URL_SCHEME;
 const INSTANCE_SRV_NAME = process.env.INSTANCE_SERVICE_NAME;
 const NERU_CONFIGURATIONS = JSON.parse(process.env['NERU_CONFIGURATIONS']);
 
 const router = neru.Router();
 
-// const session = neru.createSession();
-// const voice = new Voice(session);
+// -----
 
-// await voice.onVapiAnswer('onCall').execute();
+import AWS from 'aws-sdk';
+import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 
-// router.post('/onCall', async (req, res, next) => {
-//     console.log('onCall', req.body);
+import Vonage from '@vonage/server-sdk';
 
-//     let eventUrl = `${BASE_URL}/${INSTANCE_SRV_NAME}/webhooks/recordings`;
-//     console.log("eventUrl", eventUrl);
+import { StartTranscriptionJobCommand } from "@aws-sdk/client-transcribe";
+import { TranscribeClient } from "@aws-sdk/client-transcribe";
 
-//     res.json([{
-//         action: 'talk',
-//         text: 'Hello. This call will be recorded.'
-//     }, {
-//         action: "record",
-//         endOnKey: '#',
-//         beepStart: 'true',
-//         endOnSilence: "3",
-//         eventUrl: [ eventUrl ]
-//     }, {
-//         action: 'talk',
-//         text: 'Thank you for your message. Goodbye.'
-//     }]);
-// });
+const session = neru.getSessionById(`neru-voice-record-transcript-s3-${APP_ID}`);
+const instanceState = session.getState();
+
+let awsKey = `${APP_ID}:awsInfo`,
+    awsInfo = await instanceState.get(awsKey);
+
+var apiKey = process.env.API_ACCOUNT_ID,
+    apiSecret = NERU_CONFIGURATIONS.apiSecret,
+    privateKey = "./private.key",
+    applicationId = process.env.API_APPLICATION_ID,
+    awsId, awsSecret, awsRegion, s3Bucket,
+    s3, transcribeClient, vonage;
+
+const initFromAwsInfo = async() => {
+    try {
+        console.log("awsInfo", awsInfo);
+        awsId = awsInfo.awsId;
+        awsSecret = awsInfo.awsSecret;
+        s3Bucket = awsInfo.s3Bucket;
+        awsRegion = awsInfo.awsRegion;
+        return { error: null, message: "Init from awsInfo" };
+    } catch (error) {
+        console.log("AWS data not found");
+        return { error: true, message: "AWS data not found" };
+    }
+}
+const initVonageSDK = async() => {
+    vonage = new Vonage({
+        apiKey, apiSecret, applicationId, privateKey
+    }, {
+        debug: true
+    });
+    console.log("Vonage SDK init")
+    return "Ok";
+}
+const initAwsS3 = async() => {
+    s3 = new AWS.S3({
+        accessKeyId: awsId,
+        secretAccessKey: awsSecret
+    });
+    console.log("AWS S3 init")
+    return "Ok";
+}
+const initAwsTranscribe = async() => {
+    transcribeClient = new TranscribeClient({
+        region: awsRegion,
+        credentials: new AWS.Credentials(awsId, awsSecret)
+    });
+    console.log("AWS Transcribe init")
+    return "Ok";
+}
+const initData = async() => {
+    try {
+        let result = await initFromAwsInfo();
+        if (!result.error) {
+            await initVonageSDK();
+            await initAwsS3();
+            await initAwsTranscribe();
+        }
+    } catch (error) {
+
+    }
+}
+await initData();
 
 // -----
 
-import { v4 as uuidv4 } from 'uuid';
-import Vonage from '@vonage/server-sdk';
-
-// var apiKey, apiSecret, privateKey, s3Key, s3Secret
-var apiKey = NERU_CONFIGURATIONS.apiKey,
-    apiSecret = NERU_CONFIGURATIONS.apiSecret,
-    privateKey = "./private.key",
-    applicationId = NERU_CONFIGURATIONS.applicationId
-var vonage;
-
-//TODO: delete
-vonage = new Vonage({
-    apiKey, apiSecret, applicationId, privateKey
-}, {
-    debug: true
-});
-
-var awsId = NERU_CONFIGURATIONS.awsId,
-    awsSecret = NERU_CONFIGURATIONS.awsSecret,
-    s3Bucket = NERU_CONFIGURATIONS.s3Bucket,
-    awsSessionToken = NERU_CONFIGURATIONS.awsSessionToken
-    
-import fs from 'fs';
-import AWS from 'aws-sdk';
-const s3 = new AWS.S3({
-    accessKeyId: awsId,
-    secretAccessKey: awsSecret,
-    sessionToken: awsSessionToken
-});
-// TODO: Delete later. For testing aws credentials
-// s3.listBuckets({}, function(err, data) {
-//     if (err) console.log(err, err.stack); // an error occurred
-//     else     console.log(data);  
-// });
-
 router.post('/webhooks/answer', async (req, res, next) => {
-    console.log('Answer event', req.body);
+    console.log('/webhooks/answer ', req.body);
 
     try {
+        if (!awsInfo) {
+            throw(new Error("Unable to process event. Please setup AWS credentials in config page first."))
+        }
+
         let eventUrl = `${BASE_URL}/${INSTANCE_SRV_NAME}/webhooks/recordings`;
         console.log("eventUrl", eventUrl);
 
@@ -100,13 +119,18 @@ router.post('/webhooks/answer', async (req, res, next) => {
 });
 
 router.post('/webhooks/event', async (req, res, next) => {
+    // console.log('/webhooks/event ', req.body);
     res.sendStatus(200);
 });
 
 router.post('/webhooks/recordings', async (req, res, next) => {
-    console.log('Recording event', req.body);
+    console.log('/webhooks/recordings ', req.body);
     
     try {
+        if (!awsInfo) {
+            throw(new Error("Unable to process event. Please setup AWS credentials in config page first."))
+        }
+
         let { recording_url, recording_uuid, conversation_uuid } = req.body;
 
         // Download recording to server
@@ -115,7 +139,7 @@ router.post('/webhooks/recordings', async (req, res, next) => {
             recordingUrl: recording_url,
             filename: `recordings/${conversation_uuid}|${recording_uuid}.mp3`
         });
-        console.log("saveRecordingResult", saveRecordingResult);
+        // console.log("saveRecordingResult", saveRecordingResult);
 
         // Upload to S3 bucket
         const uploadFileFunction = Util.promisify(uploadFile);
@@ -123,7 +147,7 @@ router.post('/webhooks/recordings', async (req, res, next) => {
             localFileName: `recordings/${conversation_uuid}|${recording_uuid}.mp3`,
             s3FileName: `${conversation_uuid}/${recording_uuid}.mp3`
         });
-        console.log("uploadFileResult", uploadFileResult);
+        // console.log("uploadFileResult", uploadFileResult);
         let recordingUrl = uploadFileResult.Location;
         
         // Send to AWS Transcribe and upload to S3 bucket
@@ -135,14 +159,14 @@ router.post('/webhooks/recordings', async (req, res, next) => {
             mediaUri: recordingUrl,
             outputKey: `${conversation_uuid}/${recording_uuid}.json`
         });
-        console.log("transcribeMp3Result", transcribeMp3Result);
+        // console.log("transcribeMp3Result", transcribeMp3Result);
 
         // Delete recording file from server
         const deleteFileFunction = Util.promisify(deleteFile);
         let deleteFileResult = await deleteFileFunction({
             localFileName: `recordings/${conversation_uuid}|${recording_uuid}.mp3`,
         });
-        console.log("deleteFile", deleteFile);
+        // console.log("deleteFileResult", deleteFileResult);
 
         res.sendStatus(200);
     } catch (error) {
@@ -157,6 +181,7 @@ const saveRecording = ({ recordingUrl, filename }, callback) => {
 
 const uploadFile = ({ localFileName, s3FileName }, callback) => {
     const fileContent = fs.readFileSync(localFileName);
+    console.log(NERU_CONFIGURATIONS.awsId, NERU_CONFIGURATIONS.awsSecret, NERU_CONFIGURATIONS.s3Bucket, NERU_CONFIGURATIONS.awsSessionToken);
     const params = {
         Bucket: s3Bucket,
         Key: s3FileName,
@@ -173,18 +198,6 @@ const deleteFile = ({ localFileName }, callback) => {
         callback(null, "Ok");
     });
 };
-
-
-import {
-    StartTranscriptionJobCommand,
-    ListTranscriptionJobsCommand, DeleteTranscriptionJobCommand
-} from "@aws-sdk/client-transcribe";
-
-import { TranscribeClient } from "@aws-sdk/client-transcribe";
-
-const transcribeClient = new TranscribeClient({
-    region: NERU_CONFIGURATIONS.awsRegion
-});
 
 const transcribeMp3 = async ({ jobName, languageCode, mediaFormat, mediaUri, outputKey }) => {
     try {
@@ -203,67 +216,99 @@ const transcribeMp3 = async ({ jobName, languageCode, mediaFormat, mediaUri, out
         console.log("Success", data);
         return data;
     } catch (err) {
-        console.log("Error", err);
+        console.log("Error - transcribeMp3", err);
     }
 };
 
 // -----
-// Below are used for testing purposes
 
-const listJobs = async({ jobName }) => {
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import st from 'serve-static';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+var path = __dirname + '/public/views/';
+
+router.use("/css", st(join(__dirname, "public/css")));
+router.use("/js", st(join(__dirname, "public/js")));
+
+router.get('/config', async (req, res, next) => {
+    res.sendFile(path + "config.html");
+});
+
+router.get('/config/get', async (req, res, next) => {
     try {
-        let params = {};
-        if (jobName) {
-            params = { JobNameContains: jobName };
-        } 
-        const data = await transcribeClient.send(
-            new ListTranscriptionJobsCommand(params)
-        );
-        console.log("Success", data.TranscriptionJobSummaries);
-        return data;
-    } catch (err) {
-        console.log("Error", err);
-    }
-};
-
-const deleteJob = async({ jobName }) => {
-    try {
-        const data = await transcribeClient.send(
-            new DeleteTranscriptionJobCommand({
-                TranscriptionJobName: jobName
-            })
-        );
-        console.log("Success", data);
-        return data;
-    } catch (err) {
-        console.log("Error", err);
-    }
-};
-
-router.post('/transcribe/list', async (req, res, next) => {
-    try {
-        let { jobName } = req.body;
-        let listJobResult = await listJobs({ jobName });
-
-        res.send(listJobResult);
+        res.json({
+            apiKey: process.env.API_ACCOUNT_ID,
+            applicationId: process.env.API_APPLICATION_ID,
+            awsId, awsSecret, awsRegion, s3Bucket
+        });
     } catch (error) {
-        res.send(error);
+        res.json({
+            error: error.message ? error.message : error
+        });
     }
 });
 
-router.post('/transcribe/delete', async (req, res, next) => {
+router.post('/config/save', async (req, res, next) => {
     try {
-        let { jobName } = req.body;
-        if (!jobName) {
-            throw(new Error("jobName is required"));
+        console.log("/config/save", req.body);
+        let { awsId, awsSecret, s3Bucket, awsRegion } = req.body;
+
+        if (!awsId || !awsSecret || !s3Bucket || !awsRegion) {
+            throw(new Error("awsId, awsSecret, awsRegion, s3Bucket, are required"));
         }
-        let deleteJobResult = await deleteJob({ jobName });
 
-        res.send(deleteJobResult);
+        // Check aws credentials & if bucket exists
+        const checkAwsCredsS3BucketFunction = Util.promisify(checkAwsCredsS3Bucket);
+        await checkAwsCredsS3BucketFunction({
+            awsId, awsSecret, awsRegion, s3Bucket
+        });
+
+        // Create s3 object
+        s3 = new AWS.S3({
+            accessKeyId: awsId,
+            secretAccessKey: awsSecret
+        });
+
+        // Save aws credentials
+        await instanceState.set(awsKey, {
+            awsId, awsSecret, awsRegion, s3Bucket
+        });
+
+        // Create Vonage object, s3 object, aws transcribe object
+        await initVonageSDK();
+        await initAwsS3();
+        await initAwsTranscribe();
+
+        res.sendStatus(200);
     } catch (error) {
-        res.send(error);
+        console.log("error", error);
+        res.send(error.message ? error.message : error);
     }
 });
 
+const checkAwsCredsS3Bucket = ({ awsId, awsSecret, awsRegion, s3Bucket }, callback) => {
+    let checkS3 = new AWS.S3({
+        accessKeyId: awsId,
+        secretAccessKey: awsSecret,
+        region: awsRegion
+    });
+    checkS3.listBuckets({}, (err, data) => {
+        if (err) {
+            return callback(err);
+        }
+        let bucketExists = false;
+        data.Buckets.forEach((bucket) => {
+            if (bucket.Name === s3Bucket) {
+                bucketExists = true;
+            }
+        });
+        if (!bucketExists) {
+            return callback("Bucket doesn't exist!");
+        }
+        callback(null, "Ok");
+    });
+};
 
 export { router };

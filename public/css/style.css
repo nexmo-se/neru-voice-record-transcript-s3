@@ -1,0 +1,38 @@
+body {
+    font-family: Arial;
+}
+
+h1 {
+    text-align: center;
+    width: 100%;
+}
+
+form {
+    width: 40%;
+    margin: auto;
+    padding: 20px;
+    font-size: 1em;
+}
+
+section {
+    display: flex;
+    padding-bottom: 10px;
+}
+
+label {
+    margin-right: auto;
+}
+
+input, textarea {
+    width: 60%;
+}
+
+textarea {
+    height: 50px;
+}
+
+button {
+    display: flex;
+    margin: 20px auto;
+    font-size: 1em;
+}
