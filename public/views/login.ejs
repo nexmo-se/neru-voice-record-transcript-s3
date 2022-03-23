@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>Login</title>
+
+        <link rel="stylesheet" href="./css/style.css">
+	</head>
+	<body>
+		<h1>Login</h1>
+	
+        <form action="./login" method="post">
+            <section>
+                <label for="username">Vonage Application ID</label>
+                <input id="username" name="username" type="text" required>
+            </section>
+            <section>
+                <label for="current-password">Vonage API Secret</label>
+                <input id="current-password" name="password" type="password" required>
+            </section>
+
+            <div class="messages">
+                <% messages.forEach(function(message) { %>
+                <p><%= message %></p>
+                <% }); %>
+            </div>
+            
+            <button type="submit">Login</button>
+        </form>
+	
+	</body>
+</html>

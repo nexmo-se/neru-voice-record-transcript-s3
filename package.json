@@ -14,7 +14,15 @@
         "@aws-sdk/client-transcribe": "^3.53.0",
         "@vonage/server-sdk": "^2.10.10",
         "aws-sdk": "^2.1087.0",
+        "connect-ensure-login": "^0.1.1",
+        "consolidate": "^0.16.0",
+        "cookie-parser": "^1.4.6",
+        "ejs": "^3.1.6",
+        "express-flash": "^0.0.2",
+        "express-session": "^1.17.2",
         "neru-alpha": "^0.1.11",
+        "passport": "^0.5.2",
+        "passport-local": "^1.0.0",
         "serve-static": "^1.14.2",
         "uuid": "^8.3.2"
     }

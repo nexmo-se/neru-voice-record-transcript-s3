@@ -22,7 +22,7 @@ function onConfigGet(result) {
     }
 }
 
-var path = window.location.pathname.replace("/config", "");
+var path = window.location.pathname.replace("/config", "").replace("/login", "");;
 axios.get(`${path}/config/get`, {})
     .then(onConfigGet)
     .catch(handleError);

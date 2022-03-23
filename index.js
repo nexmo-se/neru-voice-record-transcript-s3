@@ -8,7 +8,7 @@ const NERU_CONFIGURATIONS = JSON.parse(process.env['NERU_CONFIGURATIONS']);
 
 const router = neru.Router();
 
-// -----
+// Init ----------------------------------------------
 
 import AWS from 'aws-sdk';
 import fs from 'fs';
@@ -41,7 +41,7 @@ const initFromAwsInfo = async() => {
         awsRegion = awsInfo.awsRegion;
         return { error: null, message: "Init from awsInfo" };
     } catch (error) {
-        console.log("AWS data not found");
+        console.log("initFromAwsInfo - AWS data not found");
         return { error: true, message: "AWS data not found" };
     }
 }
@@ -79,148 +79,90 @@ const initData = async() => {
             await initAwsTranscribe();
         }
     } catch (error) {
-
+        console.error("initData - ", error);
     }
 }
 await initData();
 
-// -----
+// Admin authentication ------------------------------
 
-router.post('/webhooks/answer', async (req, res, next) => {
-    console.log('/webhooks/answer ', req.body);
+import cel from "connect-ensure-login";
+import cons from 'consolidate';
+import cookieParser from "cookie-parser";
+import e_session from "express-session";
+import flash from "express-flash";
+import LocalStrategy from "passport-local";
+import passport from "passport";
 
-    try {
-        if (!awsInfo) {
-            throw(new Error("Unable to process event. Please setup AWS credentials in config page first."))
-        }
+router.use(cookieParser());
+router.use(e_session({
+    secret: 'siberian husky',
+    resave: false,
+    saveUninitialized: false,
+}));
+router.use(flash());
+router.use(passport.authenticate('session'));
 
-        let eventUrl = `${BASE_URL}/${INSTANCE_SRV_NAME}/webhooks/recordings`;
-        console.log("eventUrl", eventUrl);
+const ensureLoggedIn = cel.ensureLoggedIn;
 
-        res.json([{
-            action: 'talk',
-            text: 'Hello. This call will be recorded.'
-        }, {
-            action: "record",
-            endOnKey: '#',
-            beepStart: 'true',
-            endOnSilence: "3",
-            eventUrl: [ eventUrl ]
-        }, {
-            action: 'talk',
-            text: 'Thank you for your message. Goodbye.'
-        }]);
-    } catch (error) {
-        res.json([{
-            action: 'talk',
-            text: 'I\'m sorry, we\'re unable to process your request.'
-        }]);
+passport.use(new LocalStrategy(function verify(appID, apiSecret, cb) {
+    if (process.env["API_APPLICATION_ID"] != appID) {
+        return cb(null, false, { message: 'Incorrect username or password.' });
     }
-});
-
-router.post('/webhooks/event', async (req, res, next) => {
-    // console.log('/webhooks/event ', req.body);
-    res.sendStatus(200);
-});
-
-router.post('/webhooks/recordings', async (req, res, next) => {
-    console.log('/webhooks/recordings ', req.body);
     
-    try {
-        if (!awsInfo) {
-            throw(new Error("Unable to process event. Please setup AWS credentials in config page first."))
+    const apiKey = process.env.API_ACCOUNT_ID;
+    const vonage = new Vonage({
+        apiKey, apiSecret
+    });
+    
+    vonage.account.listSecrets(apiKey, (err, result) => {
+        if (err) {
+            return cb(null, false, { message: 'Incorrect username or password.' });
         }
+        cb(null, { id: "0", username: "Vonage User" });
+    });
+}));
 
-        let { recording_url, recording_uuid, conversation_uuid } = req.body;
-
-        // Download recording to server
-        const saveRecordingFunction = Util.promisify(saveRecording);
-        let saveRecordingResult = await saveRecordingFunction({
-            recordingUrl: recording_url,
-            filename: `recordings/${conversation_uuid}|${recording_uuid}.mp3`
-        });
-        // console.log("saveRecordingResult", saveRecordingResult);
-
-        // Upload to S3 bucket
-        const uploadFileFunction = Util.promisify(uploadFile);
-        let uploadFileResult = await uploadFileFunction({
-            localFileName: `recordings/${conversation_uuid}|${recording_uuid}.mp3`,
-            s3FileName: `${conversation_uuid}/${recording_uuid}.mp3`
-        });
-        // console.log("uploadFileResult", uploadFileResult);
-        let recordingUrl = uploadFileResult.Location;
-        
-        // Send to AWS Transcribe and upload to S3 bucket
-        let jobName = uuidv4();
-        let transcribeMp3Result = await transcribeMp3({
-            jobName,
-            languageCode: "en-US",
-            mediaFormat: "mp3",
-            mediaUri: recordingUrl,
-            outputKey: `${conversation_uuid}/${recording_uuid}.json`
-        });
-        // console.log("transcribeMp3Result", transcribeMp3Result);
-
-        // Delete recording file from server
-        const deleteFileFunction = Util.promisify(deleteFile);
-        let deleteFileResult = await deleteFileFunction({
-            localFileName: `recordings/${conversation_uuid}|${recording_uuid}.mp3`,
-        });
-        // console.log("deleteFileResult", deleteFileResult);
-
-        res.sendStatus(200);
-    } catch (error) {
-        console.log("ERR", error);
-        res.send(error.message ? error.message : error);
-    }
+passport.serializeUser(function(user, cb) {
+    process.nextTick(function() {
+        cb(null, { id: user.id, username: user.username });
+    });
+});
+passport.deserializeUser(function(user, cb) {
+    process.nextTick(function() {
+        return cb(null, user);
+    });
 });
 
-const saveRecording = ({ recordingUrl, filename }, callback) => {
-    vonage.files.save(recordingUrl, filename, callback);
-}
+router.get('/', function (req, res, next) {
+    res.json({ up: "Neru Voice Record Transcript S3" });
+});
 
-const uploadFile = ({ localFileName, s3FileName }, callback) => {
-    const fileContent = fs.readFileSync(localFileName);
-    console.log(NERU_CONFIGURATIONS.awsId, NERU_CONFIGURATIONS.awsSecret, NERU_CONFIGURATIONS.s3Bucket, NERU_CONFIGURATIONS.awsSessionToken);
-    const params = {
-        Bucket: s3Bucket,
-        Key: s3FileName,
-        Body: fileContent
-    };
-    s3.upload(params, callback);
-};
-
-const deleteFile = ({ localFileName }, callback) => {
-    fs.unlink(localFileName, (err) => {
-        if (err) {
-            return callback(error);
-        }
-        callback(null, "Ok");
+router.get('/login', function (req, res, next) {
+    let messages = req.flash("error");
+    cons.ejs(path + "login.ejs", { messages }, function (err, html) {
+        if (err) throw err;
+        res.send(html);
     });
-};
+});
 
-const transcribeMp3 = async ({ jobName, languageCode, mediaFormat, mediaUri, outputKey }) => {
-    try {
-        const data = await transcribeClient.send(
-            new StartTranscriptionJobCommand({
-                TranscriptionJobName: jobName,
-                LanguageCode: languageCode,
-                MediaFormat: mediaFormat,
-                Media: {
-                    MediaFileUri: mediaUri
-                },
-                OutputBucketName: s3Bucket,
-                OutputKey: outputKey
-            })
-        );
-        console.log("Success", data);
-        return data;
-    } catch (err) {
-        console.log("Error - transcribeMp3", err);
-    }
-};
+router.post('/login', passport.authenticate('local', {
+    successReturnToOrRedirect: './config',
+    failureRedirect: './login',
+    failureFlash: true
+}));
 
-// -----
+router.post('/logout', function (req, res, next) {
+    req.logout();
+    res.redirect('./login');
+});
+
+router.get('/logout', function (req, res, next) {
+    req.logout();
+    res.redirect('./');
+});
+
+// Config page ---------------------------------------
 
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -232,7 +174,7 @@ var path = __dirname + '/public/views/';
 router.use("/css", st(join(__dirname, "public/css")));
 router.use("/js", st(join(__dirname, "public/js")));
 
-router.get('/config', async (req, res, next) => {
+router.get('/config', ensureLoggedIn("./login"), async (req, res, next) => {
     res.sendFile(path + "config.html");
 });
 
@@ -283,7 +225,6 @@ router.post('/config/save', async (req, res, next) => {
 
         res.sendStatus(200);
     } catch (error) {
-        console.log("error", error);
         res.send(error.message ? error.message : error);
     }
 });
@@ -309,6 +250,137 @@ const checkAwsCredsS3Bucket = ({ awsId, awsSecret, awsRegion, s3Bucket }, callba
         }
         callback(null, "Ok");
     });
+};
+
+// Webhook events ------------------------------------
+router.post('/webhooks/answer', async (req, res, next) => {
+    console.log('/webhooks/answer ', req.body);
+
+    try {
+        if (!awsInfo) {
+            throw(new Error("Unable to process event. Please setup AWS credentials in config page first."))
+        }
+
+        let eventUrl = `${BASE_URL}/${INSTANCE_SRV_NAME}/webhooks/recordings`;
+        console.log("eventUrl", eventUrl);
+
+        res.json([{
+            action: 'talk',
+            text: 'Hello. Your message will be recorded. Presh hash when you\'re done speaking.'
+        }, {
+            action: "record",
+            endOnKey: '#',
+            beepStart: 'true',
+            endOnSilence: "3",
+            eventUrl: [ eventUrl ]
+        }, {
+            action: 'talk',
+            text: 'Thank you for your message. Goodbye.'
+        }]);
+    } catch (error) {
+        res.json([{
+            action: 'talk',
+            text: 'I\'m sorry, we\'re unable to process your request.'
+        }]);
+    }
+});
+
+router.post('/webhooks/event', async (req, res, next) => {
+    // console.log('/webhooks/event ', req.body);
+    res.sendStatus(200);
+});
+
+router.post('/webhooks/recordings', async (req, res, next) => {
+    console.log('/webhooks/recordings ', req.body);
+    
+    try {
+        if (!awsInfo) {
+            throw(new Error("Unable to process event. Please setup AWS credentials in config page first."))
+        }
+
+        let { recording_url, recording_uuid, conversation_uuid } = req.body;
+
+        // Download recording to server
+        const saveRecordingFunction = Util.promisify(saveRecording);
+        await saveRecordingFunction({
+            recordingUrl: recording_url,
+            filename: `recordings/${conversation_uuid}|${recording_uuid}.mp3`
+        });
+        
+        // Upload to S3 bucket
+        const uploadFileFunction = Util.promisify(uploadFile);
+        let uploadFileResult = await uploadFileFunction({
+            localFileName: `recordings/${conversation_uuid}|${recording_uuid}.mp3`,
+            s3FileName: `${conversation_uuid}/${recording_uuid}.mp3`
+        });
+        let recordingUrl = uploadFileResult.Location;
+        
+        // Send to AWS Transcribe and upload to S3 bucket
+        let jobName = uuidv4();
+        await transcribeMp3({
+            jobName,
+            languageCode: "en-US",
+            mediaFormat: "mp3",
+            mediaUri: recordingUrl,
+            outputKey: `${conversation_uuid}/${recording_uuid}.json`
+        });
+
+        // Delete recording file from server
+        const deleteFileFunction = Util.promisify(deleteFile);
+        await deleteFileFunction({
+            localFileName: `recordings/${conversation_uuid}|${recording_uuid}.mp3`,
+        });
+
+        res.sendStatus(200);
+    } catch (error) {
+        console.error("/webhooks/recording - ", error);
+        res.send(error.message ? error.message : error);
+    }
+});
+
+const saveRecording = ({ recordingUrl, filename }, callback) => {
+    vonage.files.save(recordingUrl, filename, callback);
+}
+
+const uploadFile = ({ localFileName, s3FileName }, callback) => {
+    const fileContent = fs.readFileSync(localFileName);
+    console.log(NERU_CONFIGURATIONS.awsId, NERU_CONFIGURATIONS.awsSecret, NERU_CONFIGURATIONS.s3Bucket, NERU_CONFIGURATIONS.awsSessionToken);
+    const params = {
+        Bucket: s3Bucket,
+        Key: s3FileName,
+        Body: fileContent
+    };
+    s3.upload(params, callback);
+};
+
+const deleteFile = ({ localFileName }, callback) => {
+    fs.unlink(localFileName, (err) => {
+        if (err) {
+            return callback(error);
+        }
+        callback(null, "Ok");
+    });
+};
+
+const transcribeMp3 = async ({ jobName, languageCode, mediaFormat, mediaUri, outputKey }) => {
+    try {
+        const data = await transcribeClient.send(
+            new StartTranscriptionJobCommand({
+                TranscriptionJobName: jobName,
+                LanguageCode: languageCode,
+                MediaFormat: mediaFormat,
+                Media: {
+                    MediaFileUri: mediaUri
+                },
+                OutputBucketName: s3Bucket,
+                OutputKey: outputKey
+            })
+        );
+        console.log("Success", data);
+        return data;
+    } catch (err) {
+        console.log("Error - transcribeMp3", err);
+    }
 };
 
 export { router };

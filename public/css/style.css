@@ -36,3 +36,9 @@ button {
     margin: 20px auto;
     font-size: 1em;
 }
+
+.messages {
+    color: #cd1010;
+    font-size: 0.9em;
+    font-style: italic;
+}
