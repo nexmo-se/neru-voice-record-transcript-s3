@@ -2,7 +2,7 @@
 Neru App for Voice API recording and transcription (using AWS Transcribe) upload to Amazon S3 bucket.
 
 ## 📚 Preparation
-1. Create your Vonage application and connect it to Neru app. See [how to create Neru applications here](https://vonage-neru.herokuapp.com/neru/training#project-configuration) (you only need to enable Voice).
+1. Create your Vonage application and connect it to Neru app. See [how to create Neru applications here](https://vonage-neru.herokuapp.com/neru/getting-started) (you only need to enable Voice).
 2. Make sure your LVN is linked to the Vonage application.
 3. Download your application's `private.key` from Vonage Dashboard and place it under the root folder.
 4. Make sure your Vonage application's Voice Answer URL and Event URL is pointing to your Neru app:
@@ -10,7 +10,7 @@ Neru App for Voice API recording and transcription (using AWS Transcribe) upload
     - `{host}/webhooks/event`
 5. Check `neru.yml.example` to see what configurations fields need to be added into `neru.yml`.
 6. Run `npm install`.
-7. Deploy app to Neru using the `neru deploy` command.
+7. Deploy app to Neru using the `neru deploy` command. Use the second url given by Neru upon successfully running this command.
 8. Make sure you have your AWS credentials (id key, secret, region) and S3 bucket name ready with the correct permissions.
 
 ## ▶️ Executing
